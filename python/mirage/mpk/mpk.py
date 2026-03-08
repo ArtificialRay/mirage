@@ -135,19 +135,44 @@ class MPK:
         self.need_cpy_step = False
         self.src_step = args.step
         
-        if args.step is not None and args.step.dtype != torch.int32:
-            self.need_cpy_step = True
-            self.step = torch.empty_like(args.step, dtype=torch.int32, device=args.step.device)
-        else:
-            self.step = args.step
+        # Always create buffers with size max_num_batched_tokens, NOT based on first batch size
+        # This ensures the buffer can accommodate any batch size up to max_num_batched_tokens
+        if args.step is not None:
+            # If input is a slice/view of a larger buffer, get the full buffer
+            # by using storage information to reconstruct the base tensor
+            if args.step.storage_offset() > 0 or args.step.numel() < args.step.untyped_storage().size() // args.step.element_size():
+                # args.step a view/slice, reconstruct full buffer
+                storage_size = args.step.untyped_storage().size() // args.step.element_size()
+                full_step = torch.tensor([], dtype=args.step.dtype, device=args.step.device).set_(
+                    args.step.untyped_storage(), 0, (storage_size,))
+                self.src_step = full_step
+            else:
+                self.src_step = args.step
+            # always create a buffer with max number batched tokens
+            if self.src_step.dtype != torch.int32 or self.src_step.shape[0] < self.max_num_batched_tokens:
+                self.need_cpy_step = True
+                self.step = torch.empty(self.max_num_batched_tokens, dtype=torch.int32, device=args.step.device)
+            else:
+                self.step = self.src_step
             
         self.tokens = args.tokens
-        if args.input_tokens.dtype != torch.int64:
-            self.need_cpy_input = True
-            self.input_tokens = torch.empty_like(args.input_tokens, dtype=torch.int64, device=args.input_tokens.device)
-            self.src_input_tokens = args.input_tokens
-        else:
-            self.input_tokens = args.input_tokens
+        if args.input_tokens is not None:
+            # If input is a slice/view of a larger buffer, get the full buffer
+            if args.input_tokens.storage_offset() > 0 or args.input_tokens.numel() < args.input_tokens.untyped_storage().size() // args.input_tokens.element_size():
+                # args.input_tokens a view/slice, reconstruct full buffer
+                storage_size = args.input_tokens.untyped_storage().size() // args.input_tokens.element_size()
+                full_input = torch.tensor([], dtype=args.input_tokens.dtype, device=args.input_tokens.device).set_(
+                    args.input_tokens.untyped_storage(), 0, (storage_size,))
+                self.src_input_tokens = full_input
+            else:
+                self.src_input_tokens = args.input_tokens
+            
+            # Always create a buffer with max size
+            if self.src_input_tokens.dtype != torch.int64 or self.src_input_tokens.shape[0] < self.max_num_batched_tokens:
+                self.need_cpy_input = True
+                self.input_tokens = torch.empty(self.max_num_batched_tokens, dtype=torch.int64, device=args.input_tokens.device)
+            else:
+                self.input_tokens = self.src_input_tokens
         self.output_tokens = args.output_tokens
         self.num_new_tokens = args.num_new_tokens
         self.prompt_lengths = args.prompt_lengths
@@ -422,9 +447,13 @@ class MPK:
         if not self.is_compiled:
             self.compile()
         if self.need_cpy_input:
-            self.input_tokens.copy_(self.src_input_tokens.to(torch.int64))
+            # Copy only the actual batch size, not the entire buffer
+            actual_size = self.src_input_tokens.shape[0]
+            self.input_tokens[:actual_size].copy_(self.src_input_tokens.to(torch.int64))
         if self.need_cpy_step:
-            self.step.copy_(self.src_step.to(torch.int32))
+            # Copy only the actual batch size, not the entire buffer
+            actual_size = self.src_step.shape[0]
+            self.step[:actual_size].copy_(self.src_step.to(torch.int32))
             original_steps = self.step.clone()
         else:
             original_steps = self.src_step.clone()
