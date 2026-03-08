@@ -287,7 +287,7 @@ struct RuntimeConfig {
   int *next_request_id;   // Metadata for LLM serving
 #endif
 #if defined(MODE_OFFLINE) || defined(MODE_ONLINE)
-  int *page_queue;     // Metadata for online/offline serving
+  int *page_queue;  // Metadata for online/offline serving
   int *page_queue_head; // Metadata for online/offline serving
   int *page_queue_tail; // Metadata for online/offline serving
 #endif
