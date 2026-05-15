@@ -251,6 +251,19 @@ class MPK:
             max_num_batched_tokens=self.max_num_batched_tokens,
             max_num_pages=args.max_num_pages,
             page_size=args.page_size,
+            meta_tensors={
+                "step": self.step,
+                "tokens": self.tokens,
+                "input_tokens": self.input_tokens,
+                "output_tokens": self.output_tokens,
+                "num_new_tokens": self.num_new_tokens,
+                "prompt_lengths": self.prompt_lengths,
+                "qo_indptr_buffer": self.qo_indptr_buffer,
+                "paged_kv_indptr_buffer": self.paged_kv_indptr_buffer,
+                "paged_kv_indices_buffer": self.paged_kv_indices_buffer,
+                "paged_kv_last_page_len_buffer": self.paged_kv_last_page_len_buffer,
+                "paged_kv_indices_snapshot": self.paged_kv_indices_snapshot,
+            },
             meta_tensors=meta_tensors,
             profiler_tensor=self.profiler_tensor,
             trace_name=args.trace_name,
@@ -258,6 +271,20 @@ class MPK:
             use_cutlass_kernel=args.use_cutlass_kernel,
             pinned_ring_capacity=args.pinned_ring_capacity,
         )
+        meta_tensors = [
+            self.step,
+            self.tokens,
+            self.input_tokens,
+            self.output_tokens,
+            self.num_new_tokens,
+            self.prompt_lengths,
+            self.qo_indptr_buffer,
+            self.paged_kv_indptr_buffer,
+            self.paged_kv_indices_buffer,
+            self.paged_kv_last_page_len_buffer,
+            self.paged_kv_indices_snapshot,
+        ]
+        self.meta_tensors_ptr = [tensor.data_ptr() for tensor in meta_tensors]
         self.meta_tensors_ptr = [tensor.data_ptr() for tensor in meta_tensors.values()]
         self.profiler_buffer_ptr = (
             self.persistent_kernel.profiler_tensor.data_ptr() if self.persistent_kernel.profiler_tensor is not None else 0
@@ -315,6 +342,9 @@ class MPK:
         if self.paged_kv_indices_buffer is None:
             print(f"Compensating paged kv indices buffer tensor")
             self.paged_kv_indices_buffer = torch.empty(
+                self.max_num_pages, dtype=torch.int32, device="cuda")
+        if not hasattr(self, 'paged_kv_indices_snapshot') or self.paged_kv_indices_snapshot is None:
+            self.paged_kv_indices_snapshot = torch.empty(
                 self.max_num_pages, dtype=torch.int32, device="cuda")
         if self.paged_kv_last_page_len_buffer is None:
             print(f"Compensating paged kv last page len buffer tensor")
