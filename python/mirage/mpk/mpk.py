@@ -125,7 +125,7 @@ class MPK:
         self.max_sm_num = args.max_sm_num
         self.num_workers = args.num_workers
         self.num_schedulers = args.num_schedulers
-        
+        self.max_num_pages = args.max_num_pages
         torch.set_default_dtype(torch.bfloat16)
         torch.cuda.set_device(self.rank)
         
@@ -208,7 +208,8 @@ class MPK:
             "qo_indptr_buffer": self.qo_indptr_buffer,
             "paged_kv_indptr_buffer": self.paged_kv_indptr_buffer,
             "paged_kv_indices_buffer": self.paged_kv_indices_buffer,
-            "paged_kv_last_page_len_buffer": self.paged_kv_last_page_len_buffer
+            "paged_kv_last_page_len_buffer": self.paged_kv_last_page_len_buffer,
+            "paged_kv_indices_snapshot": self.paged_kv_indices_snapshot
         }
         # Pinned ring buffers for online_pinned mode.
         # Both CPU and GPU access these arrays; pin_memory() gives a stable
@@ -251,19 +252,6 @@ class MPK:
             max_num_batched_tokens=self.max_num_batched_tokens,
             max_num_pages=args.max_num_pages,
             page_size=args.page_size,
-            meta_tensors={
-                "step": self.step,
-                "tokens": self.tokens,
-                "input_tokens": self.input_tokens,
-                "output_tokens": self.output_tokens,
-                "num_new_tokens": self.num_new_tokens,
-                "prompt_lengths": self.prompt_lengths,
-                "qo_indptr_buffer": self.qo_indptr_buffer,
-                "paged_kv_indptr_buffer": self.paged_kv_indptr_buffer,
-                "paged_kv_indices_buffer": self.paged_kv_indices_buffer,
-                "paged_kv_last_page_len_buffer": self.paged_kv_last_page_len_buffer,
-                "paged_kv_indices_snapshot": self.paged_kv_indices_snapshot,
-            },
             meta_tensors=meta_tensors,
             profiler_tensor=self.profiler_tensor,
             trace_name=args.trace_name,
@@ -271,20 +259,6 @@ class MPK:
             use_cutlass_kernel=args.use_cutlass_kernel,
             pinned_ring_capacity=args.pinned_ring_capacity,
         )
-        meta_tensors = [
-            self.step,
-            self.tokens,
-            self.input_tokens,
-            self.output_tokens,
-            self.num_new_tokens,
-            self.prompt_lengths,
-            self.qo_indptr_buffer,
-            self.paged_kv_indptr_buffer,
-            self.paged_kv_indices_buffer,
-            self.paged_kv_last_page_len_buffer,
-            self.paged_kv_indices_snapshot,
-        ]
-        self.meta_tensors_ptr = [tensor.data_ptr() for tensor in meta_tensors]
         self.meta_tensors_ptr = [tensor.data_ptr() for tensor in meta_tensors.values()]
         self.profiler_buffer_ptr = (
             self.persistent_kernel.profiler_tensor.data_ptr() if self.persistent_kernel.profiler_tensor is not None else 0
