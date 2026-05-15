@@ -2516,7 +2516,8 @@ class PersistentKernel:
             "pinned_comp_ready",
             "pinned_comp_request_id",
             "pinned_comp_final_step",
-            "pinned_shutdown"
+            "pinned_shutdown",
+            "pinned_step",
         ]
         meta_tensors_ptr = []
         for key in expected_order:
@@ -2626,6 +2627,17 @@ class PersistentKernel:
         meta_tensors.append(self.meta_tensors["paged_kv_indptr_buffer"])
         meta_tensors.append(self.meta_tensors["paged_kv_indices_buffer"])
         meta_tensors.append(self.meta_tensors["paged_kv_last_page_len_buffer"])
+        meta_tensors.append(self.meta_tensors["paged_kv_indices_snapshot"])
+        if self.mode == "online_pinned":
+            meta_tensors.append(self.meta_tensors["pinned_req_ready"])
+            meta_tensors.append(self.meta_tensors["pinned_req_request_id"])
+            meta_tensors.append(self.meta_tensors["pinned_req_prompt_len"])
+            meta_tensors.append(self.meta_tensors["pinned_req_initial_step"])
+            meta_tensors.append(self.meta_tensors["pinned_comp_ready"])
+            meta_tensors.append(self.meta_tensors["pinned_comp_request_id"])
+            meta_tensors.append(self.meta_tensors["pinned_comp_final_step"])
+            meta_tensors.append(self.meta_tensors["pinned_shutdown"])
+            meta_tensors.append(self.meta_tensors["pinned_step"])
         meta_tensors_ptr = [tensor.data_ptr() for tensor in meta_tensors]
         profiler_buffer_ptr = (
             self.profiler_tensor.data_ptr() if self.profiler_tensor is not None else 0
