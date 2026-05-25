@@ -164,10 +164,11 @@ class MPK:
                 self.src_step = args.step
             self.step = self.src_step
             # uncomment them if you are using vllm-mpk integration
-            # always create a buffer with max number batched tokens
-            # if self.src_step.dtype != torch.int32 or self.src_step.shape[0] < self.max_num_batched_tokens:
-            #     self.need_cpy_step = True
-            #     self.step = torch.empty(self.max_num_batched_tokens, dtype=torch.int32, device=args.step.device)
+            # Buffer must be sized per-request (kernel indexes step[request_id]),
+            # and MUST be zero-initialized 
+            req_capacity = max(args.max_num_batched_requests, args.total_num_requests)
+            if self.src_step.dtype != torch.int32 or self.src_step.shape[0] < req_capacity:
+                self.step = torch.zeros(req_capacity, dtype=torch.int32, device=args.step.device)
             # else:
             #     self.step = self.src_step
         
@@ -184,9 +185,9 @@ class MPK:
             self.input_tokens = self.src_input_tokens
             # uncomment them if you are using vllm-mpk integration
             # Always create a buffer with max size
-            # if self.src_input_tokens.dtype != torch.int64 or self.src_input_tokens.shape[0] < self.max_num_batched_tokens:
-            #     self.need_cpy_input = True
-            #     self.input_tokens = torch.empty(self.max_num_batched_tokens, dtype=torch.int64, device=args.input_tokens.device)
+            if self.src_input_tokens.dtype != torch.int64 or self.src_input_tokens.shape[0] < self.max_num_batched_tokens:
+                self.need_cpy_input = True
+                self.input_tokens = torch.empty(self.max_num_batched_tokens, dtype=torch.int64, device=args.input_tokens.device)
             # else:
             #     self.input_tokens = self.src_input_tokens
         self.output_tokens = args.output_tokens
