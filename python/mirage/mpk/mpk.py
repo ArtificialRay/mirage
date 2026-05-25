@@ -241,18 +241,18 @@ class MPK:
             "paged_kv_indices_snapshot": self.paged_kv_indices_snapshot,
             # Pinned ring buffers — allocated upstream by
             # ModelRunner._allocate_meta_tensors, passed via MPKMetadata.
-            "pinned_req_ready":        args.pinned_req_ready,
-            "pinned_req_request_id":   args.pinned_req_request_id,
-            "pinned_req_prompt_len":   args.pinned_req_prompt_len,
-            "pinned_req_initial_step": args.pinned_req_initial_step,
-            "pinned_comp_ready":       args.pinned_comp_ready,
-            "pinned_comp_request_id":  args.pinned_comp_request_id,
-            "pinned_comp_buffer_row":  args.pinned_comp_buffer_row,
-            "pinned_comp_final_step":  args.pinned_comp_final_step,
-            "pinned_shutdown":         args.pinned_shutdown,
-            "pinned_step":             args.pinned_step,
-            "pinned_inbox_tokens":     args.pinned_inbox_tokens,
-            "pinned_rid_at_row":       args.pinned_rid_at_row,
+            "pinned_req_ready":        self.pinned_req_ready,
+            "pinned_req_request_id":   self.pinned_req_request_id,
+            "pinned_req_prompt_len":   self.pinned_req_prompt_len,
+            "pinned_req_initial_step": self.pinned_req_initial_step,
+            "pinned_comp_ready":       self.pinned_comp_ready,
+            "pinned_comp_request_id":  self.pinned_comp_request_id,
+            "pinned_comp_buffer_row":  self.pinned_comp_buffer_row,
+            "pinned_comp_final_step":  self.pinned_comp_final_step,
+            "pinned_shutdown":         self.pinned_shutdown,
+            "pinned_step":             self.pinned_step,
+            "pinned_inbox_tokens":     self.pinned_inbox_tokens,
+            "pinned_rid_at_row":       self.pinned_rid_at_row,
         }
         self.persistent_kernel = PersistentKernel(
             mode=args.mode,
@@ -337,7 +337,49 @@ class MPK:
             print(f"Compensating paged kv last page len buffer tensor")
             self.paged_kv_last_page_len_buffer = torch.empty(
                 self.max_num_batched_requests, dtype=torch.int32, device="cuda")
- 
+
+    def compensate_pinned_tensors(self):
+        """Allocate pinned CPU↔GPU ring tensors used by OnlinePinnedRuntime.
+
+        These are normally pre-allocated by ModelRunner and passed through
+        MPKMetadata; this fills in any that are still None so the meta_tensors
+        dict (and the data_ptr() pass at the end of __init__) is well-formed.
+        Shapes and dtypes follow online_pinned_runtime.py.
+        """
+        cap         = self.pinned_ring_capacity
+        max_batched = self.metadata.max_num_batched_requests
+        max_seq_len = self.max_seq_length
+
+        def _empty_i32(*shape):
+            return torch.zeros(*shape, dtype=torch.int32, pin_memory=True)
+
+        if self.pinned_req_ready is None:
+            self.pinned_req_ready = _empty_i32(cap)
+        if self.pinned_req_request_id is None:
+            self.pinned_req_request_id = _empty_i32(cap)
+        if self.pinned_req_prompt_len is None:
+            self.pinned_req_prompt_len = _empty_i32(cap)
+        if self.pinned_req_initial_step is None:
+            self.pinned_req_initial_step = _empty_i32(cap)
+        if self.pinned_comp_ready is None:
+            self.pinned_comp_ready = _empty_i32(cap)
+        if self.pinned_comp_request_id is None:
+            self.pinned_comp_request_id = _empty_i32(cap)
+        if self.pinned_comp_buffer_row is None:
+            self.pinned_comp_buffer_row = _empty_i32(cap)
+        if self.pinned_comp_final_step is None:
+            self.pinned_comp_final_step = _empty_i32(cap)
+        if self.pinned_shutdown is None:
+            self.pinned_shutdown = _empty_i32(1)
+        if self.pinned_step is None:
+            self.pinned_step = _empty_i32(max_batched)
+        if self.pinned_inbox_tokens is None:
+            self.pinned_inbox_tokens = torch.zeros(
+                cap, max_seq_len, dtype=torch.int64, pin_memory=True)
+        if self.pinned_rid_at_row is None:
+            self.pinned_rid_at_row = torch.full(
+                (max_batched,), -1, dtype=torch.int32, pin_memory=True)
+
     def get_tensors(self):
         """
         Allocate tensors for the MPK. This is used when we manage tensors by ourselves.
@@ -360,7 +402,8 @@ class MPK:
             )
         
         self.compensate_meta_tensors()
-        
+        self.compensate_pinned_tensors()
+
     def load_new_request(self, prompt: str, use_template: bool = True):
         if not self.is_built:
             raise ValueError("Model is not built yet, so tokenizer is not available")

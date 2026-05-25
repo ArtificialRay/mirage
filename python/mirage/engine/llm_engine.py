@@ -82,7 +82,7 @@ class LLMEngine:
             self.runtime.submit(rid, t)
 
         if stream:
-            return self._submit_stream(rid, prompt_len, timeout, poll_interval)
+            return self._get_stream(rid, prompt_len, timeout, poll_interval)
         else:
             buffer_row, final_step = self.runtime.wait_for_request(
                 rid, timeout, poll_interval)
@@ -109,14 +109,16 @@ class LLMEngine:
             self._kernel_thread.start()
             self._kernel_launched.set()
 
-    def _submit_stream(
+    def _get_stream(
         self,
         rid: int,
         prompt_len: int,
         timeout: float,
         poll_interval: float,
     ):
-        """Generator: yield ``(text, is_final)`` as tokens are decoded.
+        """
+        Get response token one-by-one(streaming)
+        Generator: yield ``(text, is_final)`` as tokens are decoded.
 
         Scans ``pinned_rid_at_row`` to discover the buffer row, then polls
         per-step progress so each new token is yielded immediately.
