@@ -162,8 +162,14 @@ class MPK:
                 self.src_step = full_step
             else:
                 self.src_step = args.step
-            self.step = self.src_step
-        
+            # always create a buffer with max number batched tokens
+            if self.src_step.dtype != torch.int32 or self.src_step.shape[0] < self.max_num_batched_tokens:
+                self.need_cpy_step = True
+                self.step = torch.empty(self.max_num_batched_tokens, dtype=torch.int32, device=args.step.device)
+            else:
+                self.step = self.src_step
+            
+        self.tokens = args.tokens
         if args.input_tokens is not None:
             # If input is a slice/view of a larger buffer, get the full buffer
             if args.input_tokens.storage_offset() > 0 or args.input_tokens.numel() < args.input_tokens.untyped_storage().size() // args.input_tokens.element_size():
@@ -174,8 +180,13 @@ class MPK:
                 self.src_input_tokens = full_input
             else:
                 self.src_input_tokens = args.input_tokens
-            self.input_tokens = self.src_input_tokens
             
+            # Always create a buffer with max size
+            if self.src_input_tokens.dtype != torch.int64 or self.src_input_tokens.shape[0] < self.max_num_batched_tokens:
+                self.need_cpy_input = True
+                self.input_tokens = torch.empty(self.max_num_batched_tokens, dtype=torch.int64, device=args.input_tokens.device)
+            else:
+                self.input_tokens = self.src_input_tokens
         self.output_tokens = args.output_tokens
         self.num_new_tokens = args.num_new_tokens
         self.prompt_lengths = args.prompt_lengths
