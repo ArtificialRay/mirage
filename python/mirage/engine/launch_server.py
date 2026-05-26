@@ -14,7 +14,7 @@ import argparse
 import asyncio
 import json
 from contextlib import asynccontextmanager
-from typing import AsyncGenerator
+from typing import AsyncGenerator, Literal
 
 import uvicorn
 from fastapi import FastAPI, HTTPException, Request
@@ -61,8 +61,17 @@ def _extract_prompt(messages: list[dict]) -> str:
     return ""
 
 
-async def _stream_bridge(engine: LLMEngine, prompt: str) -> AsyncGenerator[str, None]:
-    """Bridge a synchronous streaming generator to async SSE chunks."""
+async def _stream_bridge(
+    engine: LLMEngine,
+    prompt: str,
+    mode: Literal["chat", "completions"] = "chat",
+) -> AsyncGenerator[str, None]:
+    """Bridge a synchronous streaming generator to async SSE chunks.
+
+    Emits OpenAI-compatible chunks (`text` for completions, `delta.content` for
+    chat) and a final `usage.completion_tokens` chunk before `data: [DONE]` so
+    benchmark clients can read the server-reported output token count.
+    """
     queue: asyncio.Queue = asyncio.Queue()
 
     def _run():
@@ -75,6 +84,7 @@ async def _stream_bridge(engine: LLMEngine, prompt: str) -> AsyncGenerator[str, 
     loop = asyncio.get_running_loop()
     future = loop.run_in_executor(None, _run)
 
+    n_tokens = 0
     while True:
         try:
             text, is_final, error = queue.get_nowait()
@@ -88,13 +98,27 @@ async def _stream_bridge(engine: LLMEngine, prompt: str) -> AsyncGenerator[str, 
             yield f"data: {{\"error\": \"{error}\"}}\n\n"
             break
 
-        chunk = json.dumps({
-            "choices": [{"delta": {"content": text}, "index": 0}],
-        })
-        yield f"data: {chunk}\n\n"
+        # Skip the synthetic ("", True) terminator yielded by LLMEngine when
+        # the request completes with no new tokens — it carries no content.
+        if not (text == "" and is_final):
+            if mode == "completions":
+                chunk = json.dumps({
+                    "choices": [{"text": text, "index": 0}],
+                })
+            else:
+                chunk = json.dumps({
+                    "choices": [{"delta": {"content": text}, "index": 0}],
+                })
+            yield f"data: {chunk}\n\n"
+            n_tokens += 1
         if is_final:
             break
 
+    usage_chunk = json.dumps({
+        "choices": [],
+        "usage": {"completion_tokens": n_tokens},
+    })
+    yield f"data: {usage_chunk}\n\n"
     yield "data: [DONE]\n\n"
 
 
@@ -109,7 +133,7 @@ async def chat_completions(request: Request):
 
     if stream:
         return StreamingResponse(
-            _stream_bridge(request.app.state.engine, prompt),
+            _stream_bridge(request.app.state.engine, prompt, mode="chat"),
             media_type="text/event-stream",
         )
     else:
@@ -136,7 +160,7 @@ async def completions(request: Request):
 
     if stream:
         return StreamingResponse(
-            _stream_bridge(request.app.state.engine, prompt),
+            _stream_bridge(request.app.state.engine, prompt, mode="completions"),
             media_type="text/event-stream",
         )
     else:

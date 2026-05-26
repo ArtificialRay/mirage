@@ -1935,6 +1935,11 @@ int TaskRegister::register_paged_attention_sm100_task(
   int kv_stride = head_dim * num_kv_heads;
   int max_seq_len = params[4];
   int page_size = params[5];
+  // MAX_TOKENS comes from the first dim of the packed QKV input tensor
+  // (= max_num_batched_tokens). Without this, the kernel template defaults
+  // to MAX_TOKENS=8 and OOBs the per-task Q/O dmem when the scheduler packs
+  // more than 8 tokens per request (see attention_sm100.cuh:43).
+  int max_tokens = input_ops[0]->dtensor.dim[0];
   // Assert that k_cache has the same head_dim
   assert(input_ops[1]->output_tensors[0].num_dims == 4);
   assert(head_dim == input_ops[1]->output_tensors[0].dim[3]);
@@ -1945,7 +1950,7 @@ int TaskRegister::register_paged_attention_sm100_task(
   code.inc_indent();
   code.e("kernel::multitoken_paged_attention_sm100_task_impl<bfloat16, $, $, "
          "$, $, "
-         "$, $, $, $>(",
+         "$, $, $, $, $>(",
          num_q_heads / num_kv_heads,
          1,
          kv_stride,
@@ -1953,7 +1958,8 @@ int TaskRegister::register_paged_attention_sm100_task(
          output_size,
          head_dim,
          max_seq_len,
-         page_size);
+         page_size,
+         max_tokens);
   code.e("    task_desc->input_ptrs[0],");
   code.e("    task_desc->input_ptrs[1],");
   code.e("    task_desc->input_ptrs[2],");
