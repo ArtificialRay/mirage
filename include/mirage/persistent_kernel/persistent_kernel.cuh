@@ -476,10 +476,23 @@ __device__ __forceinline__ bool
 
     if (done) {
       int rid = config.request_rids[i];
+      int comp_slot = gpu_comp_tail & ring_mask;
+
+      // Backpressure: if the slot we're about to publish into still has
+      // ready==1, the CPU hasn't drained it yet. Writing now would silently
+      // overwrite the previous completion, and the rid waiting on it would
+      // hang until its request timeout. Spin-wait for the CPU to catch up
+      // (the persistent drain thread polls every 0.2ms). Check shutdown so
+      // we don't spin forever if the host process is tearing down.
+      while (ld_acquire_sys_i32(&config.pinned_comp_ready[comp_slot]) != 0) {
+        if (ld_acquire_sys_i32(config.pinned_shutdown) != 0) {
+          return false;
+        }
+        __nanosleep(100);
+      }
 
       // Write completion entry so CPU background thread can collect the
       // output. Reports the original rid (not the buffer row).
-      int comp_slot = gpu_comp_tail & ring_mask;
       config.pinned_comp_request_id[comp_slot] = (int32_t)rid;
       config.pinned_comp_buffer_row[comp_slot] = (int32_t)row;
       config.pinned_comp_final_step[comp_slot] = (int32_t)(step + num_tokens);
